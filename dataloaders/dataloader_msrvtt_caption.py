@@ -68,15 +68,15 @@ class MSRVTT_Caption_DataLoader(Dataset):
     def _get_text(self, video_id, caption=None):
         k = 1
         choice_video_ids = [video_id]
-        pairs_text = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_mask = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_segment = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_masked_text = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_token_labels = np.zeros((k, self.max_words), dtype=np.long)
+        pairs_text = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_mask = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_segment = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_masked_text = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_token_labels = np.zeros((k, self.max_words), dtype=np.int64)
 
-        pairs_input_caption_ids = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_output_caption_ids = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_decoder_mask = np.zeros((k, self.max_words), dtype=np.long)
+        pairs_input_caption_ids = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_output_caption_ids = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_decoder_mask = np.zeros((k, self.max_words), dtype=np.int64)
 
         for i, video_id in enumerate(choice_video_ids):
             words = []
@@ -209,7 +209,7 @@ class MSRVTT_Caption_DataLoader(Dataset):
                         video_labels_index[i].append(-1)
                 else:
                     video_labels_index[i].append(-1)
-        video_labels_index = np.array(video_labels_index, dtype=np.long)
+        video_labels_index = np.array(video_labels_index, dtype=np.int64)
         # -----> Mask Frame Model
 
         return video, video_mask, masked_video, video_labels_index
