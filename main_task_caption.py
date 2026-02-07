@@ -936,10 +936,9 @@ def eval_epoch(
                 decoder_mask=pairs_decoder_mask,
                 output_caption_ids=pairs_output_caption_ids,
             )
-            if loss is not None:
-                if n_gpu > 1:
-                    loss = loss.mean()
-                total_loss += float(loss)
+            if n_gpu > 1:
+                loss = loss.mean()
+            total_loss += float(loss)
 
             sequence_output, visual_output = model.get_sequence_visual_output(
                 input_ids, segment_ids, input_mask, video, video_mask
@@ -1161,10 +1160,11 @@ def main():
         train_dataloader, train_length, train_sampler = DATALOADER_DICT[args.datatype][
             "train"
         ](args, tokenizer)
-        num_train_optimization_steps = (
-            int(len(train_dataloader) + args.gradient_accumulation_steps - 1)
-            / args.gradient_accumulation_steps
-        ) * args.epochs
+        # Ceiling division to compute total optimizer steps across all epochs
+        steps_per_epoch = (
+            len(train_dataloader) + args.gradient_accumulation_steps - 1
+        ) // args.gradient_accumulation_steps
+        num_train_optimization_steps = steps_per_epoch * args.epochs
 
         coef_lr = args.coef_lr
         if args.init_model:

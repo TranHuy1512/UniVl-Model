@@ -25,22 +25,25 @@ from modules.until_config import PretrainedConfig
 
 logger = logging.getLogger(__name__)
 
+
 def gelu(x):
     """Implementation of the gelu activation function.
-        For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
-        0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+    For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
+    0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
     """
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
+
 
 def swish(x):
     return x * torch.sigmoid(x)
 
+
 ACT2FN = {"gelu": gelu, "relu": torch.nn.functional.relu, "swish": swish}
+
 
 class LayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-12):
-        """Construct a layernorm module in the TF style (epsilon inside the square root).
-        """
+        """Construct a layernorm module in the TF style (epsilon inside the square root)."""
         super(LayerNorm, self).__init__()
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.bias = nn.Parameter(torch.zeros(hidden_size))
@@ -52,10 +55,12 @@ class LayerNorm(nn.Module):
         x = (x - u) / torch.sqrt(s + self.variance_epsilon)
         return self.weight * x + self.bias
 
+
 class PreTrainedModel(nn.Module):
-    """ An abstract class to handle weights initialization and
-        a simple interface for dowloading and loading pretrained models.
+    """An abstract class to handle weights initialization and
+    a simple interface for dowloading and loading pretrained models.
     """
+
     def __init__(self, config, *inputs, **kwargs):
         super(PreTrainedModel, self).__init__()
         if not isinstance(config, PretrainedConfig):
@@ -64,18 +69,18 @@ class PreTrainedModel(nn.Module):
                 "To create a model from a Google pretrained model use "
                 "`model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`".format(
                     self.__class__.__name__, self.__class__.__name__
-                ))
+                )
+            )
         self.config = config
 
     def init_weights(self, module):
-        """ Initialize the weights.
-        """
+        """Initialize the weights."""
         if isinstance(module, (nn.Linear, nn.Embedding)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
             module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, LayerNorm):
-            if 'beta' in dir(module) and 'gamma' in dir(module):
+            if "beta" in dir(module) and "gamma" in dir(module):
                 module.beta.data.zero_()
                 module.gamma.data.fill_(1.0)
             else:
@@ -93,10 +98,10 @@ class PreTrainedModel(nn.Module):
         new_keys = []
         for key in state_dict.keys():
             new_key = None
-            if 'gamma' in key:
-                new_key = key.replace('gamma', 'weight')
-            if 'beta' in key:
-                new_key = key.replace('beta', 'bias')
+            if "gamma" in key:
+                new_key = key.replace("gamma", "weight")
+            if "beta" in key:
+                new_key = key.replace("beta", "bias")
             if new_key:
                 old_keys.append(key)
                 new_keys.append(new_key)
@@ -116,32 +121,49 @@ class PreTrainedModel(nn.Module):
         unexpected_keys = []
         error_msgs = []
         # copy state_dict so _load_from_state_dict can modify it
-        metadata = getattr(state_dict, '_metadata', None)
+        metadata = getattr(state_dict, "_metadata", None)
         state_dict = state_dict.copy()
         if metadata is not None:
             state_dict._metadata = metadata
 
-        def load(module, prefix=''):
+        def load(module, prefix=""):
             local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
             module._load_from_state_dict(
-                state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
+                state_dict,
+                prefix,
+                local_metadata,
+                True,
+                missing_keys,
+                unexpected_keys,
+                error_msgs,
+            )
             for name, child in module._modules.items():
                 if child is not None:
-                    load(child, prefix + name + '.')
+                    load(child, prefix + name + ".")
 
-        load(model, prefix='')
+        load(model, prefix="")
 
         if prefix is None and (task_config is None or task_config.local_rank == 0):
             logger.info("-" * 20)
             if len(missing_keys) > 0:
-                logger.info("Weights of {} not initialized from pretrained model: {}"
-                            .format(model.__class__.__name__, "\n   " + "\n   ".join(missing_keys)))
+                logger.info(
+                    "Weights of {} not initialized from pretrained model: {}".format(
+                        model.__class__.__name__, "\n   " + "\n   ".join(missing_keys)
+                    )
+                )
             if len(unexpected_keys) > 0:
-                logger.info("Weights from pretrained model not used in {}: {}"
-                            .format(model.__class__.__name__, "\n   " + "\n   ".join(unexpected_keys)))
+                logger.info(
+                    "Weights from pretrained model not used in {}: {}".format(
+                        model.__class__.__name__,
+                        "\n   " + "\n   ".join(unexpected_keys),
+                    )
+                )
             if len(error_msgs) > 0:
-                logger.error("Weights from pretrained model cause errors in {}: {}"
-                             .format(model.__class__.__name__, "\n   " + "\n   ".join(error_msgs)))
+                logger.error(
+                    "Weights from pretrained model cause errors in {}: {}".format(
+                        model.__class__.__name__, "\n   " + "\n   ".join(error_msgs)
+                    )
+                )
 
         return model
 
@@ -155,7 +177,9 @@ class PreTrainedModel(nn.Module):
         except StopIteration:
             # For nn.DataParallel compatibility in PyTorch 1.5
             def find_tensor_attributes(module: nn.Module):
-                tuples = [(k, v) for k, v in module.__dict__.items() if torch.is_tensor(v)]
+                tuples = [
+                    (k, v) for k, v in module.__dict__.items() if torch.is_tensor(v)
+                ]
                 return tuples
 
             gen = self._named_members(get_members_fn=find_tensor_attributes)
@@ -163,7 +187,7 @@ class PreTrainedModel(nn.Module):
             return first_tuple[1].dtype
 
     @classmethod
-    def from_pretrained(cls, config, state_dict=None,  *inputs, **kwargs):
+    def from_pretrained(cls, config, state_dict=None, *inputs, **kwargs):
         """
         Instantiate a PreTrainedModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
@@ -176,11 +200,14 @@ class PreTrainedModel(nn.Module):
 
         return model
 
+
 ##################################
 ###### LOSS FUNCTION #############
 ##################################
 class CrossEn(nn.Module):
-    def __init__(self,):
+    def __init__(
+        self,
+    ):
         super(CrossEn, self).__init__()
 
     def forward(self, sim_matrix):
@@ -190,62 +217,140 @@ class CrossEn(nn.Module):
         sim_loss = nce_loss.mean()
         return sim_loss
 
+
 class MILNCELoss(nn.Module):
-    def __init__(self, batch_size=1, n_pair=1,):
+    """Multiple Instance Learning Noise Contrastive Estimation (MIL-NCE) Loss.
+
+    Computes contrastive loss with support for multiple positive pairs per sample.
+    Positive-pair masks are built dynamically from the input similarity matrix,
+    so the loss works correctly even when the actual batch size differs from the
+    configured default (e.g., the last mini-batch in an epoch).
+
+    Args:
+        n_pair: Number of positive pairs per sample.
+    """
+
+    def __init__(self, n_pair=1):
         super(MILNCELoss, self).__init__()
-        self.batch_size = batch_size
         self.n_pair = n_pair
-        torch_v = float(".".join(torch.__version__.split(".")[:2]))
-        self.bool_dtype = torch.bool if torch_v >= 1.3 else torch.uint8
+
+    def _build_positive_mask(self, batch_size, device):
+        """Build block-diagonal mask identifying positive pairs.
+
+        Returns a float tensor of shape (batch_size * n_pair, batch_size * n_pair)
+        where 1.0 marks a positive pair.
+        """
+        eye = torch.eye(batch_size, device=device)
+        # Kronecker product: expand each scalar in the identity to an (n_pair x n_pair) block
+        mask = eye.repeat_interleave(self.n_pair, dim=0).repeat_interleave(
+            self.n_pair, dim=1
+        )
+        return mask
 
     def forward(self, sim_matrix):
-        mm_mask = np.eye(self.batch_size)
-        mm_mask = np.kron(mm_mask, np.ones((self.n_pair, self.n_pair)))
-        mm_mask = torch.tensor(mm_mask).float().to(sim_matrix.device)
+        """Compute MIL-NCE loss.
 
-        from_text_matrix = sim_matrix + mm_mask * -1e12
-        from_video_matrix = sim_matrix.transpose(1, 0)
+        Args:
+            sim_matrix: Similarity scores, shape (batch_size * n_pair, batch_size * n_pair).
 
-        new_sim_matrix = torch.cat([from_video_matrix, from_text_matrix], dim=-1)
-        logpt = F.log_softmax(new_sim_matrix, dim=-1)
+        Returns:
+            Scalar loss value.
+        """
+        batch_size = sim_matrix.size(0) // self.n_pair
+        device = sim_matrix.device
 
-        mm_mask_logpt = torch.cat([mm_mask, torch.zeros_like(mm_mask)], dim=-1)
-        masked_logpt = logpt + (torch.ones_like(mm_mask_logpt) - mm_mask_logpt) * -1e12
+        # Positive-pair mask (block-diagonal)
+        positive_mask = self._build_positive_mask(batch_size, device)
 
-        new_logpt = -torch.logsumexp(masked_logpt, dim=-1)
+        # Mask out positive pairs from the text-to-video direction
+        text_to_video_scores = sim_matrix + positive_mask * -1e12
+        video_to_text_scores = sim_matrix.transpose(1, 0)
 
-        logpt_choice = torch.zeros_like(new_logpt)
-        mark_ind = torch.arange(self.batch_size).to(sim_matrix.device) * self.n_pair + (self.n_pair//2)
-        logpt_choice[mark_ind] = 1
-        sim_loss = new_logpt.masked_select(logpt_choice.to(dtype=self.bool_dtype)).mean()
-        return sim_loss
+        combined_scores = torch.cat(
+            [video_to_text_scores, text_to_video_scores], dim=-1
+        )
+        log_probs = F.log_softmax(combined_scores, dim=-1)
+
+        # Keep only positive-pair log-probs, mask out negatives
+        combined_mask = torch.cat(
+            [positive_mask, torch.zeros_like(positive_mask)], dim=-1
+        )
+        masked_log_probs = log_probs + (1.0 - combined_mask) * -1e12
+
+        # Aggregate positive log-probs via logsumexp
+        aggregated_log_probs = -torch.logsumexp(masked_log_probs, dim=-1)
+
+        # Select one representative index per sample (middle of each positive group)
+        selector = torch.zeros_like(aggregated_log_probs, dtype=torch.bool)
+        representative_indices = torch.arange(
+            batch_size, device=device
+        ) * self.n_pair + (self.n_pair // 2)
+        selector[representative_indices] = True
+
+        loss = aggregated_log_probs.masked_select(selector).mean()
+        return loss
+
 
 class MaxMarginRankingLoss(nn.Module):
-    def __init__(self,
-                 margin=1.0,
-                 negative_weighting=False,
-                 batch_size=1,
-                 n_pair=1,
-                 hard_negative_rate=0.5,
-        ):
+    """Max-Margin Ranking Loss with optional hard-negative weighting.
+
+    Computes a bidirectional ranking loss with a configurable margin.
+    When negative_weighting is enabled with n_pair > 1, hard negatives
+    receive higher loss weight.  Weighting masks are built dynamically
+    from the input size to handle variable batch sizes correctly.
+
+    Args:
+        margin: Margin for the ranking loss.
+        negative_weighting: Whether to apply non-uniform negative weighting.
+        n_pair: Number of positive pairs per sample.
+        hard_negative_rate: Proportion of hard negatives (vs. easy negatives).
+    """
+
+    def __init__(
+        self, margin=1.0, negative_weighting=False, n_pair=1, hard_negative_rate=0.5
+    ):
         super(MaxMarginRankingLoss, self).__init__()
         self.margin = margin
         self.n_pair = n_pair
-        self.batch_size = batch_size
-        easy_negative_rate = 1 - hard_negative_rate
-        self.easy_negative_rate = easy_negative_rate
         self.negative_weighting = negative_weighting
-        if n_pair > 1 and batch_size > 1:
-            alpha = easy_negative_rate / ((batch_size - 1) * (1 - easy_negative_rate))
-            mm_mask = (1 - alpha) * np.eye(self.batch_size) + alpha
-            mm_mask = np.kron(mm_mask, np.ones((n_pair, n_pair)))
-            mm_mask = torch.tensor(mm_mask) * (batch_size * (1 - easy_negative_rate))
-            self.mm_mask = mm_mask.float()
+        self.easy_negative_rate = 1.0 - hard_negative_rate
+
+    def _build_weighting_mask(self, batch_size, device):
+        """Build weighting mask distinguishing hard vs. easy negatives.
+
+        Returns a float tensor of shape (batch_size * n_pair, batch_size * n_pair)
+        with higher weights for hard negatives.
+        """
+        alpha = self.easy_negative_rate / (
+            (batch_size - 1) * (1.0 - self.easy_negative_rate)
+        )
+        eye = torch.eye(batch_size, device=device)
+        base = (1.0 - alpha) * eye + alpha
+        # Kronecker-expand to (batch_size * n_pair, batch_size * n_pair)
+        mask = base.repeat_interleave(self.n_pair, dim=0).repeat_interleave(
+            self.n_pair, dim=1
+        )
+        return mask * (batch_size * (1.0 - self.easy_negative_rate))
 
     def forward(self, x):
-        d = torch.diag(x)
-        max_margin = F.relu(self.margin + x - d.view(-1, 1)) + \
-                     F.relu(self.margin + x - d.view(1, -1))
-        if self.negative_weighting and self.n_pair > 1 and self.batch_size > 1:
-            max_margin = max_margin * self.mm_mask.to(max_margin.device)
-        return max_margin.mean()
+        """Compute max-margin ranking loss.
+
+        Args:
+            x: Similarity matrix, shape (batch_size * n_pair, batch_size * n_pair).
+
+        Returns:
+            Scalar loss value.
+        """
+        batch_size = x.size(0) // self.n_pair
+        diagonal = torch.diag(x)
+
+        # Bidirectional margin violations
+        margin_violations = F.relu(self.margin + x - diagonal.view(-1, 1)) + F.relu(
+            self.margin + x - diagonal.view(1, -1)
+        )
+
+        if self.negative_weighting and self.n_pair > 1 and batch_size > 1:
+            weighting_mask = self._build_weighting_mask(batch_size, x.device)
+            margin_violations = margin_violations * weighting_mask
+
+        return margin_violations.mean()

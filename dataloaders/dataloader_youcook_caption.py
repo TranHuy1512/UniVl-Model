@@ -11,41 +11,48 @@ import pickle
 import re
 import random
 import io
+from dataloaders.data_utils import mask_tokens, mask_video_frames
+
 
 class Youcook_Caption_DataLoader(Dataset):
     """Youcook dataset loader."""
+
     def __init__(
-            self,
-            csv,
-            data_path,
-            features_path,
-            tokenizer,
-            feature_framerate=1.0,
-            max_words=30,
-            max_frames=100,
+        self,
+        csv,
+        data_path,
+        features_path,
+        tokenizer,
+        feature_framerate=1.0,
+        max_words=30,
+        max_frames=100,
     ):
         """
         Args:
         """
         self.csv = pd.read_csv(csv)
-        self.data_dict = pickle.load(open(data_path, 'rb'))
-        self.feature_dict = pickle.load(open(features_path, 'rb'))
+        self.data_dict = pickle.load(open(data_path, "rb"))
+        self.feature_dict = pickle.load(open(features_path, "rb"))
         self.feature_framerate = feature_framerate
         self.max_words = max_words
         self.max_frames = max_frames
         self.tokenizer = tokenizer
 
-        self.feature_size = self.feature_dict[self.csv["feature_file"].values[0]].shape[-1]
+        self.feature_size = self.feature_dict[self.csv["feature_file"].values[0]].shape[
+            -1
+        ]
 
         # Get iterator video ids
-        video_id_list = [itm for itm in self.csv['video_id'].values]
-        self.video_id2idx_dict = {video_id: id for id, video_id in enumerate(video_id_list)}
+        video_id_list = [itm for itm in self.csv["video_id"].values]
+        self.video_id2idx_dict = {
+            video_id: id for id, video_id in enumerate(video_id_list)
+        }
         # Get all captions
         self.iter2video_pairs_dict = {}
         iter_idx_ = 0
         for video_id in video_id_list:
             data_dict = self.data_dict[video_id]
-            n_caption = len(data_dict['start'])
+            n_caption = len(data_dict["start"])
             for sub_id in range(n_caption):
                 self.iter2video_pairs_dict[iter_idx_] = (video_id, sub_id)
                 iter_idx_ += 1
@@ -60,60 +67,30 @@ class Youcook_Caption_DataLoader(Dataset):
 
         starts = np.zeros(k)
         ends = np.zeros(k)
-        pairs_text = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_mask = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_segment = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_masked_text = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_token_labels = np.zeros((k, self.max_words), dtype=np.long)
+        pairs_text = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_mask = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_segment = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_masked_text = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_token_labels = np.zeros((k, self.max_words), dtype=np.int64)
 
-        pairs_input_caption_ids = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_output_caption_ids = np.zeros((k, self.max_words), dtype=np.long)
-        pairs_decoder_mask = np.zeros((k, self.max_words), dtype=np.long)
+        pairs_input_caption_ids = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_output_caption_ids = np.zeros((k, self.max_words), dtype=np.int64)
+        pairs_decoder_mask = np.zeros((k, self.max_words), dtype=np.int64)
 
         for i in range(k):
             ind = r_ind[i]
-            start_, end_ = data_dict['start'][ind], data_dict['end'][ind]
+            start_, end_ = data_dict["start"][ind], data_dict["end"][ind]
             starts[i], ends[i] = start_, end_
             total_length_with_CLS = self.max_words - 1
-            words = self.tokenizer.tokenize(data_dict['transcript'][ind])
+            words = self.tokenizer.tokenize(data_dict["transcript"][ind])
 
             words = ["[CLS]"] + words
             if len(words) > total_length_with_CLS:
                 words = words[:total_length_with_CLS]
             words = words + ["[SEP]"]
 
-            # Mask Language Model <-----
-            token_labels = []
-            masked_tokens = words.copy()
-            for token_id, token in enumerate(masked_tokens):
-                if token_id == 0 or token_id == len(masked_tokens) - 1:
-                    token_labels.append(-1)
-                    continue
-                prob = random.random()
-                # mask token with 15% probability
-                if prob < 0.15:
-                    prob /= 0.15
-
-                    # 80% randomly change token to mask token
-                    if prob < 0.8:
-                        masked_tokens[token_id] = "[MASK]"
-
-                    # 10% randomly change token to random token
-                    elif prob < 0.9:
-                        masked_tokens[token_id] = random.choice(list(self.tokenizer.vocab.items()))[0]
-
-                    # -> rest 10% randomly keep current token
-
-                    # append current token to output (we will predict these later)
-                    try:
-                        token_labels.append(self.tokenizer.vocab[token])
-                    except KeyError:
-                        # For unknown words (should not occur with BPE vocab)
-                        token_labels.append(self.tokenizer.vocab["[UNK]"])
-                        # print("Cannot find token '{}' in vocab. Using [UNK] insetad".format(token))
-                else:
-                    # no masking token (will be ignored by loss function later)
-                    token_labels.append(-1)
+            # Masked Language Modeling (MLM)
+            masked_tokens, token_labels = mask_tokens(words, self.tokenizer)
             # -----> Mask Language Model
 
             input_ids = self.tokenizer.convert_tokens_to_ids(words)
@@ -139,15 +116,19 @@ class Youcook_Caption_DataLoader(Dataset):
             pairs_token_labels[i] = np.array(token_labels)
 
             # For generate captions
-            caption_words = self.tokenizer.tokenize(data_dict['text'][ind])
+            caption_words = self.tokenizer.tokenize(data_dict["text"][ind])
             if len(caption_words) > total_length_with_CLS:
                 caption_words = caption_words[:total_length_with_CLS]
             input_caption_words = ["[CLS]"] + caption_words
             output_caption_words = caption_words + ["[SEP]"]
 
             # For generate captions
-            input_caption_ids = self.tokenizer.convert_tokens_to_ids(input_caption_words)
-            output_caption_ids = self.tokenizer.convert_tokens_to_ids(output_caption_words)
+            input_caption_ids = self.tokenizer.convert_tokens_to_ids(
+                input_caption_words
+            )
+            output_caption_ids = self.tokenizer.convert_tokens_to_ids(
+                output_caption_words
+            )
             decoder_mask = [1] * len(input_caption_ids)
             while len(input_caption_ids) < self.max_words:
                 input_caption_ids.append(0)
@@ -161,51 +142,54 @@ class Youcook_Caption_DataLoader(Dataset):
             pairs_output_caption_ids[i] = np.array(output_caption_ids)
             pairs_decoder_mask[i] = np.array(decoder_mask)
 
-        return pairs_text, pairs_mask, pairs_segment, pairs_masked_text, pairs_token_labels,\
-               pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids, starts, ends
+        return (
+            pairs_text,
+            pairs_mask,
+            pairs_segment,
+            pairs_masked_text,
+            pairs_token_labels,
+            pairs_input_caption_ids,
+            pairs_decoder_mask,
+            pairs_output_caption_ids,
+            starts,
+            ends,
+        )
 
     def _get_video(self, idx, s, e):
-        video_mask = np.zeros((len(s), self.max_frames), dtype=np.long)
+        video_mask = np.zeros((len(s), self.max_frames), dtype=np.int64)
         max_video_length = [0] * len(s)
 
         video_features = self.feature_dict[self.csv["feature_file"].values[idx]]
-        video = np.zeros((len(s), self.max_frames, self.feature_size), dtype=np.float)
+        video = np.zeros((len(s), self.max_frames, self.feature_size), dtype=np.float64)
         for i in range(len(s)):
             start = int(s[i] * self.feature_framerate)
             end = int(e[i] * self.feature_framerate) + 1
             video_slice = video_features[start:end]
 
             if self.max_frames < video_slice.shape[0]:
-                video_slice = video_slice[:self.max_frames]
+                video_slice = video_slice[: self.max_frames]
 
             slice_shape = video_slice.shape
-            max_video_length[i] = max_video_length[i] if max_video_length[i] > slice_shape[0] else slice_shape[0]
+            max_video_length[i] = (
+                max_video_length[i]
+                if max_video_length[i] > slice_shape[0]
+                else slice_shape[0]
+            )
             if len(video_slice) < 1:
-                print("video_id: {}, start: {}, end: {}".format(self.csv["video_id"].values[idx], start, end))
+                print(
+                    "video_id: {}, start: {}, end: {}".format(
+                        self.csv["video_id"].values[idx], start, end
+                    )
+                )
                 # pass
             else:
-                video[i][:slice_shape[0]] = video_slice
+                video[i][: slice_shape[0]] = video_slice
 
         for i, v_length in enumerate(max_video_length):
             video_mask[i][:v_length] = [1] * v_length
 
-        # Mask Frame Model <-----
-        video_labels_index = [[] for _ in range(len(s))]
-        masked_video = video.copy()
-        for i, video_pair_ in enumerate(masked_video):
-            for j, _ in enumerate(video_pair_):
-                if j < max_video_length[i]:
-                    prob = random.random()
-                    # mask token with 15% probability
-                    if prob < 0.15:
-                        masked_video[i][j] = [0.] * video.shape[-1]
-                        video_labels_index[i].append(j)
-                    else:
-                        video_labels_index[i].append(-1)
-                else:
-                    video_labels_index[i].append(-1)
-        video_labels_index = np.array(video_labels_index, dtype=np.long)
-        # -----> Mask Frame Model
+        # Masked Frame Modeling (MFM)
+        masked_video, video_labels_index = mask_video_frames(video, max_video_length)
 
         return video, video_mask, masked_video, video_labels_index
 
@@ -214,12 +198,34 @@ class Youcook_Caption_DataLoader(Dataset):
         video_id, sub_id = self.iter2video_pairs_dict[feature_idx]
         idx = self.video_id2idx_dict[video_id]
 
-        pairs_text, pairs_mask, pairs_segment, \
-        pairs_masked_text, pairs_token_labels, pairs_input_caption_ids, \
-        pairs_decoder_mask, pairs_output_caption_ids, starts, ends = self._get_text(video_id, sub_id)
+        (
+            pairs_text,
+            pairs_mask,
+            pairs_segment,
+            pairs_masked_text,
+            pairs_token_labels,
+            pairs_input_caption_ids,
+            pairs_decoder_mask,
+            pairs_output_caption_ids,
+            starts,
+            ends,
+        ) = self._get_text(video_id, sub_id)
 
-        video, video_mask, masked_video, video_labels_index = self._get_video(idx, starts, ends)
+        video, video_mask, masked_video, video_labels_index = self._get_video(
+            idx, starts, ends
+        )
 
-        return pairs_text, pairs_mask, pairs_segment, video, video_mask, \
-               pairs_masked_text, pairs_token_labels, masked_video, video_labels_index, \
-               pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids
+        return (
+            pairs_text,
+            pairs_mask,
+            pairs_segment,
+            video,
+            video_mask,
+            pairs_masked_text,
+            pairs_token_labels,
+            masked_video,
+            video_labels_index,
+            pairs_input_caption_ids,
+            pairs_decoder_mask,
+            pairs_output_caption_ids,
+        )
